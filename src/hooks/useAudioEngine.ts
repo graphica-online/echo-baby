@@ -31,6 +31,41 @@ type EngineReturn = {
   setStatus: (s: AppStatus) => void;
 };
 
+// ⚡ Код высокопроизводительного AudioWorklet-процессора в виде строки для Blob
+const WORKLET_CODE = `
+  class EchoBabyProcessor extends AudioWorkletProcessor {
+    constructor() {
+      super();
+      this.bufferSize = ${BUFFER_SIZE};
+      this.buffer = new Float32Array(this.bufferSize);
+      this.writeIndex = 0;
+    }
+
+    process(inputs, outputs, parameters) {
+      const input = inputs[0];
+      if (!input || input.length === 0) return true;
+      const channelData = input[0]; // Моно-канал
+
+      for (let i = 0; i < channelData.length; i++) {
+        this.buffer[this.writeIndex] = channelData[i];
+        this.writeIndex++;
+
+        if (this.writeIndex >= this.bufferSize) {
+          // Выделяем новую память для передачи
+          const copy = new Float32Array(this.bufferSize);
+          copy.set(this.buffer);
+          
+          // Zero-Copy Transfer: передаем владение ArrayBuffer без копирования
+          this.port.postMessage(copy.buffer, [copy.buffer]);
+          this.writeIndex = 0;
+        }
+      }
+      return true;
+    }
+  }
+  registerProcessor('echo-baby-processor', EchoBabyProcessor);
+`;
+
 function trimSilence(samples: any, sampleRate: number, thresholdPct: number): any {
   const amplitudeThreshold = (thresholdPct / 400) * 0.5;
   const blockSize = Math.floor(sampleRate * 0.01);
@@ -69,7 +104,7 @@ export function useAudioEngine(options: EngineOptions): EngineReturn {
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const processorRef = useRef<ScriptProcessorNode | null>(null);
+  const workletNodeRef = useRef<AudioWorkletNode | null>(null); // Вместо ScriptProcessor
   const analyserRef = useRef<AnalyserNode | null>(null);
 
   const preBufferRef = useRef<any[]>([]);
@@ -145,7 +180,7 @@ export function useAudioEngine(options: EngineOptions): EngineReturn {
     setStatus("listening");
   }, []);
 
-  const start = useCallback(async () => {
+    const start = useCallback(async () => {
     setError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -164,6 +199,15 @@ export function useAudioEngine(options: EngineOptions): EngineReturn {
 
       if (ctx.state === "suspended") await ctx.resume();
 
+      const blob = new Blob([WORKLET_CODE], { type: "application/javascript" });
+      const workletUrl = URL.createObjectURL(blob);
+      
+      try {
+        await ctx.audioWorklet.addModule(workletUrl);
+      } finally {
+        URL.revokeObjectURL(workletUrl);
+      }
+
       const source = ctx.createMediaStreamSource(stream);
 
       const an = ctx.createAnalyser();
@@ -172,20 +216,20 @@ export function useAudioEngine(options: EngineOptions): EngineReturn {
       analyserRef.current = an;
       setAnalyser(an);
 
-      const processor = ctx.createScriptProcessor(BUFFER_SIZE, 1, 1);
-      processorRef.current = processor;
+      const workletNode = new AudioWorkletNode(ctx, "echo-baby-processor");
+      workletNodeRef.current = workletNode;
 
       const gain = ctx.createGain();
       gain.gain.value = 0;
 
       source.connect(an);
-      source.connect(processor);
-      processor.connect(gain);
+      source.connect(workletNode);
+      workletNode.connect(gain);
       gain.connect(ctx.destination);
 
       const prebufferMaxChunks = Math.ceil((PREBUFFER_MS * ctx.sampleRate) / BUFFER_SIZE);
 
-      processor.onaudioprocess = (e) => {
+      workletNode.port.onmessage = (event) => {
         if (isPlayingRef.current) {
           preBufferRef.current = [];
           recBufferRef.current = [];
@@ -195,8 +239,7 @@ export function useAudioEngine(options: EngineOptions): EngineReturn {
           return;
         }
 
-        const input = e.inputBuffer.getChannelData(0);
-        const samples = new Float32Array(input as any) as any;
+        const samples = new Float32Array(event.data);
 
         let sum = 0;
         for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i];
@@ -249,8 +292,8 @@ export function useAudioEngine(options: EngineOptions): EngineReturn {
 
       setStatus("listening");
     } catch (e: any) {
-      console.error("Mic error:", e);
-      let msg = "Не удалось получить доступ к микрофону.";
+      console.error("Mic or Worklet error:", e);
+      let msg = "Не удалось запустить аудио-движок.";
       if (e?.name === "NotAllowedError") {
         msg = "Доступ к микрофону запрещён. Разрешите его в браузере.";
       }
@@ -260,24 +303,30 @@ export function useAudioEngine(options: EngineOptions): EngineReturn {
   }, [finalizeClip]);
 
     const stop = useCallback(() => {
-    if (processorRef.current) {
-      processorRef.current.onaudioprocess = null;
-      try { processorRef.current.disconnect(); } catch {}
-      processorRef.current = null;
+    if (workletNodeRef.current) {
+      workletNodeRef.current.port.onmessage = null;
+      try { workletNodeRef.current.disconnect(); } catch {}
+      workletNodeRef.current = null;
     }
+
     if (analyserRef.current) {
       try { analyserRef.current.disconnect(); } catch {}
       analyserRef.current = null;
       setAnalyser(null);
     }
+
     if (audioCtxRef.current && audioCtxRef.current.state !== "closed") {
       audioCtxRef.current.close().catch(() => {});
       audioCtxRef.current = null;
     }
+
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current.getTracks().forEach((t) => {
+        try { t.stop(); } catch {}
+      });
       streamRef.current = null;
     }
+
     isRecordingRef.current = false;
     isPlayingRef.current = false;
     preBufferRef.current = [];
@@ -289,7 +338,9 @@ export function useAudioEngine(options: EngineOptions): EngineReturn {
 
   const notifyPlaybackStarted = useCallback(() => {
     isPlayingRef.current = true;
-    if (isRecordingRef.current) finalizeClip();
+    if (isRecordingRef.current) {
+      finalizeClip();
+    }
     if (statusRef.current === "listening" || statusRef.current === "recording") {
       setStatus("playing");
     }
@@ -302,7 +353,10 @@ export function useAudioEngine(options: EngineOptions): EngineReturn {
     recBufferRef.current = [];
     isRecordingRef.current = false;
     silenceStartRef.current = 0;
-    if (statusRef.current === "playing") setStatus("listening");
+    
+    if (statusRef.current === "playing") {
+      setStatus("listening");
+    }
   }, []);
 
   useEffect(() => {
