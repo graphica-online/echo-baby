@@ -1,36 +1,66 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 👶 Echo Baby v2.0 — Умная Аудио-Няня и Звуковой Регистратор
 
-## Getting Started
+> **Интерактивное одностраничное веб-приложение (WebApp)**, которое постоянно слушает микрофон и автоматически записывает аудио-клипы в формате WAV (PCM 16 бит), как только уровень звука превышает заданный пользователем порог чувствительности.
 
-First, run the development server:
+🎯 **Главная фича:** Приложение использует кольцевой предбуфер длиной **2 секунды**. Это значит, что запись начинается за 2 секунды ДО того, как сработал триггер громкости — вы гарантированно не упустите начало плача, крика или первого слова малыша.
+
+---
+
+## 🌟 Зачем это нужно в реальной жизни?
+
+*   **👶 Аудио-няня для малышей:** Оставьте планшет или старый телефон в детской. Приложение запишет каждое просыпание, кряхтение, агуканье или плач. Утром вы сможете прослушать всю историю сна вашего ребёнка.
+*   **🛡️ Домашний аудио-регистратор:** Оставьте вкладку активной, уходя из дома. Приложение зафиксирует любые резкие звуки: лай собаки, разбитое стекло, падение предметов или звонок в дверь.
+*   **🎙️ Умный диктофон встреч:** Не нужно держать запись включенной часами и писать гигабайты тишины. Записывайте только живую речь, когда кто-то говорит.
+*   **🎸 Запись репетиций и вокала:** Пойте или играйте на инструменте — приложение запишет каждый дубль автоматически, не отвлекая вас нажатием кнопок. Благодаря предзаписи, атака первой ноты никогда не срежется.
+
+---
+
+## ✨ Премиальные возможности (Wow-эффекты)
+
+*   **⚡ Полноценный офлайн-режим (IndexedDB):** Все ваши записи, комментарии, отметки избранного и настройки сохраняются прямо в вашем браузере. Вы можете перезагрузить страницу или закрыть браузер — данные не пропадут. Лимит записей настраивается вручную с автоочисткой старых (избранные записи защищены от удаления).
+*   **🌊 6 интерактивных canvas-визуализаторов:** Реагируют на ваш голос в реальном времени через Web Audio API (FFT Spectrum):
+    1.  *Classic Bars* — сочные градиентные столбики, расходящиеся от центра.
+    2.  *Mirror Wave* — профессиональная зеркальная звуковая волна.
+    3.  *Circular Siri* — радиальные неоновые лучи вокруг кнопки старта.
+    4.  *Liquid Blob* — "живое" органическое пятно, меняющее форму от звука.
+    5.  *Particles Field* — 120 мерцающих частиц-светлячков с физикой взрыва от басов.
+    6.  *Retro Neon Grid* — неоновая ретро-сетка в стиле синтвейв.
+*   **🎨 Живой переключатель палитр (Theme Switcher):** Смена основного цвета Untitled UI в один клик (Violet, Rose, Sky, Emerald, Amber, Zinc). Поддержка глубокой темной и светлой тем.
+*   **🔒 100% Приватность и Безопасность:** Ни один байт вашего аудио-потока не отправляется на сторонние серверы или в облако. Весь анализ звука и кодирование происходят локально на вашем устройстве в оперативной памяти браузера.
+
+---
+
+## 🛠 Технический стек
+
+*   **Фреймворк:** [Next.js 15+](https://nextjs.org/) (App Router, Client-Side Rendering)
+*   **Стиль:** [Tailwind CSS v4](https://tailwindcss.com/) (премиальныйUntitled UI концепт)
+*   **Анимации:** Tailwind animate, RequestAnimationFrame для Canvas (60 FPS без нагрузки на процессор)
+*   **Аудио-движок:** Web Audio API (AudioContext, AnalyserNode, ScriptProcessorNode)
+*   **Кодирование:** Кастомный PCM-WAV кодировщик (гарантирует воспроизведение на iOS Safari без использования сторонних библиотек)
+*   **Локальная БД:** Браузерная СУБД IndexedDB (без внешнего бэкенда)
+
+---
+
+## 👨‍💻 Автор проекта
+
+*   **Дизайн и разработка:** [Alexey Semenov (graphica-online)](https://github.com/graphica-online)
+*   *UI/UX & Web Designer with 15+ years of experience. I design websites, interfaces, and WebApps that drive business growth — not just look good.*
+
+---
+
+## 🚀 Как запустить локально
+
+Если вы хотите запустить проект на своём компьютере разработчика:
 
 ```bash
+# 1. Клонируйте репозиторий
+git clone https://github.com/graphica-online/echo-baby.git
+
+# 2. Перейдите в папку
+cd echo-baby
+
+# 3. Установите зависимости
+npm install
+
+# 4. Запустите сервер разработки
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
