@@ -82,3 +82,14 @@ npm install
 
 # 4. Запустите dev-сервер
 npm run dev
+
+**🔗 Демо: [echo-baby-roan.vercel.app](https://echo-baby-roan.vercel.app/)**
+
+👨‍💻 Автор
+Alexey Semenov — UI/UX & Web Designer
+15+ лет опыта. Проектирую сайты, интерфейсы и веб-приложения, которые растят бизнес, а не просто красиво выглядят.
+
+GitHub: @graphica-online
+
+📄 Лицензия
+Проект распространяется под лицензией MIT.
