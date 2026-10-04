@@ -31,43 +31,27 @@ type EngineReturn = {
   setStatus: (s: AppStatus) => void;
 };
 
-/**
- * Обрезает "тихий хвост" в начале и конце клипа.
- * Это убирает длинные паузы, если звук был короткий, но пауза тишины ждала завершения.
- */
-function trimSilence(
-  samples: Float32Array,
-  sampleRate: number,
-  thresholdPct: number
-): Float32Array {
-  // Переводим порог в амплитуду (0-1)
-  // RMS * 400 = levelPct, значит amplitude = levelPct / 400
-  const amplitudeThreshold = thresholdPct / 400 * 0.5; // немного ниже порога, чтобы не резать голос
-
-  // Считаем в блоках по 10мс для стабильности
-  const blockSize = Math.floor(sampleRate * 0.01); // 10ms
+function trimSilence(samples: any, sampleRate: number, thresholdPct: number): any {
+  const amplitudeThreshold = (thresholdPct / 400) * 0.5;
+  const blockSize = Math.floor(sampleRate * 0.01);
   
-  // Находим первый "громкий" блок
   let startIdx = 0;
   for (let i = 0; i < samples.length - blockSize; i += blockSize) {
     let sum = 0;
     for (let j = 0; j < blockSize; j++) sum += samples[i + j] * samples[i + j];
     const rms = Math.sqrt(sum / blockSize);
     if (rms > amplitudeThreshold) {
-      // Отступаем назад на 100мс для плавного начала
       startIdx = Math.max(0, i - sampleRate * 0.1);
       break;
     }
   }
 
-  // Находим последний "громкий" блок (идём с конца)
   let endIdx = samples.length;
   for (let i = samples.length - blockSize; i >= 0; i -= blockSize) {
     let sum = 0;
     for (let j = 0; j < blockSize; j++) sum += samples[i + j] * samples[i + j];
     const rms = Math.sqrt(sum / blockSize);
     if (rms > amplitudeThreshold) {
-      // Добавляем 200мс после последнего звука (хвост)
       endIdx = Math.min(samples.length, i + blockSize + sampleRate * 0.2);
       break;
     }
@@ -88,16 +72,14 @@ export function useAudioEngine(options: EngineOptions): EngineReturn {
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
 
-  const preBufferRef = useRef<Float32Array[]>([]);
-  const recBufferRef = useRef<Float32Array[]>([]);
+  const preBufferRef = useRef<any[]>([]);
+  const recBufferRef = useRef<any[]>([]);
 
   const isRecordingRef = useRef(false);
   const silenceStartRef = useRef<number>(0);
   const recStartRef = useRef<number>(0);
   const rearmUntilRef = useRef<number>(0);
   const playbackRearmRef = useRef<number>(0);
-  
-  // ✨ Ключевой флаг: блокирует ЛЮБУЮ обработку аудио во время воспроизведения
   const isPlayingRef = useRef(false);
 
   const sampleRateRef = useRef(44100);
@@ -114,7 +96,6 @@ export function useAudioEngine(options: EngineOptions): EngineReturn {
   const finalizeClip = useCallback(() => {
     const chunks = recBufferRef.current;
     
-    // Синхронно сбрасываем все флаги
     recBufferRef.current = [];
     isRecordingRef.current = false;
     silenceStartRef.current = 0;
@@ -125,19 +106,17 @@ export function useAudioEngine(options: EngineOptions): EngineReturn {
       return;
     }
 
-    // Склеиваем все чанки
     let totalLen = 0;
     for (const c of chunks) totalLen += c.length;
-    let merged = new Float32Array(totalLen);
+    
+    let merged: any = new Float32Array(totalLen); 
     let off = 0;
     for (const c of chunks) {
       merged.set(c, off);
       off += c.length;
     }
 
-    // 🎯 ОБРЕЗАЕМ ТИХИЕ ХВОСТЫ
     merged = trimSilence(merged, sampleRateRef.current, sensitivityRef.current);
-
     const durationMs = (merged.length / sampleRateRef.current) * 1000;
 
     if (durationMs < MIN_CLIP_MS) {
@@ -207,9 +186,7 @@ export function useAudioEngine(options: EngineOptions): EngineReturn {
       const prebufferMaxChunks = Math.ceil((PREBUFFER_MS * ctx.sampleRate) / BUFFER_SIZE);
 
       processor.onaudioprocess = (e) => {
-        // 🛑 КРИТИЧЕСКАЯ ЗАЩИТА: если идёт воспроизведение — полностью игнорируем звук
         if (isPlayingRef.current) {
-          // Чистим буферы, чтобы не записать эхо после окончания плеера
           preBufferRef.current = [];
           recBufferRef.current = [];
           isRecordingRef.current = false;
@@ -219,7 +196,7 @@ export function useAudioEngine(options: EngineOptions): EngineReturn {
         }
 
         const input = e.inputBuffer.getChannelData(0);
-        const samples = new Float32Array(input);
+        const samples = new Float32Array(input as any) as any;
 
         let sum = 0;
         for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i];
@@ -231,17 +208,14 @@ export function useAudioEngine(options: EngineOptions): EngineReturn {
         const now = Date.now();
 
         if (isRecordingRef.current) {
-          // === Пишем ===
           recBufferRef.current.push(samples);
           const elapsed = now - recStartRef.current;
 
-          // Жёсткая остановка по максимуму
           if (elapsed >= MAX_CLIP_MS) {
             finalizeClip();
             return;
           }
 
-          // Отслеживаем тишину
           if (levelPct < threshold) {
             if (silenceStartRef.current === 0) {
               silenceStartRef.current = now;
@@ -253,13 +227,11 @@ export function useAudioEngine(options: EngineOptions): EngineReturn {
             silenceStartRef.current = 0;
           }
         } else {
-          // === Слушаем ===
           preBufferRef.current.push(samples);
           if (preBufferRef.current.length > prebufferMaxChunks) {
             preBufferRef.current.shift();
           }
 
-          // Начало записи
           if (
             levelPct >= threshold &&
             now > rearmUntilRef.current &&
@@ -268,7 +240,6 @@ export function useAudioEngine(options: EngineOptions): EngineReturn {
             isRecordingRef.current = true;
             recStartRef.current = now;
             silenceStartRef.current = 0;
-            // Старт = предбуфер + уже прочитанный чанк (его добавит следующая итерация)
             recBufferRef.current = [...preBufferRef.current, samples];
             preBufferRef.current = [];
             setStatus("recording");
@@ -279,42 +250,34 @@ export function useAudioEngine(options: EngineOptions): EngineReturn {
       setStatus("listening");
     } catch (e: any) {
       console.error("Mic error:", e);
-      let msg = "Не удалось получить доступ к микрофону. Проверьте разрешения браузера.";
+      let msg = "Не удалось получить доступ к микрофону.";
       if (e?.name === "NotAllowedError") {
-        msg = "Доступ к микрофону запрещён. Разрешите доступ в настройках браузера.";
-      } else if (e?.name === "NotFoundError") {
-        msg = "Микрофон не найден. Подключите устройство записи.";
-      } else if (e?.name === "NotReadableError") {
-        msg = "Микрофон занят другим приложением.";
+        msg = "Доступ к микрофону запрещён. Разрешите его в браузере.";
       }
       setError(msg);
       setStatus("idle");
     }
   }, [finalizeClip]);
 
-  const stop = useCallback(() => {
+    const stop = useCallback(() => {
     if (processorRef.current) {
       processorRef.current.onaudioprocess = null;
       try { processorRef.current.disconnect(); } catch {}
       processorRef.current = null;
     }
-
     if (analyserRef.current) {
       try { analyserRef.current.disconnect(); } catch {}
       analyserRef.current = null;
       setAnalyser(null);
     }
-
     if (audioCtxRef.current && audioCtxRef.current.state !== "closed") {
       audioCtxRef.current.close().catch(() => {});
       audioCtxRef.current = null;
     }
-
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     }
-
     isRecordingRef.current = false;
     isPlayingRef.current = false;
     preBufferRef.current = [];
@@ -324,13 +287,9 @@ export function useAudioEngine(options: EngineOptions): EngineReturn {
     setStatus("idle");
   }, []);
 
-  // ✨ Вызывается перед запуском воспроизведения
   const notifyPlaybackStarted = useCallback(() => {
     isPlayingRef.current = true;
-    // Если шла запись — финализируем её немедленно, чтобы не терять
-    if (isRecordingRef.current) {
-      finalizeClip();
-    }
+    if (isRecordingRef.current) finalizeClip();
     if (statusRef.current === "listening" || statusRef.current === "recording") {
       setStatus("playing");
     }
@@ -338,17 +297,12 @@ export function useAudioEngine(options: EngineOptions): EngineReturn {
 
   const notifyPlaybackEnded = useCallback(() => {
     isPlayingRef.current = false;
-    // Устанавливаем защитную задержку
     playbackRearmRef.current = Date.now() + PLAYBACK_REARM_MS;
-    // Чистим буферы, чтобы не иметь остаточного эха
     preBufferRef.current = [];
     recBufferRef.current = [];
     isRecordingRef.current = false;
     silenceStartRef.current = 0;
-    
-    if (statusRef.current === "playing") {
-      setStatus("listening");
-    }
+    if (statusRef.current === "playing") setStatus("listening");
   }, []);
 
   useEffect(() => {
