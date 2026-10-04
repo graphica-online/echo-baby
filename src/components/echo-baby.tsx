@@ -70,9 +70,9 @@ export default function EchoBaby() {
     if (settings.autoplay) playClip(newClip);
   };
 
-  const {
+    const {
     status, level, error: micError, analyser,
-    start: startMic, stop: stopMic, notifyPlaybackEnded,
+    start: startMic, stop: stopMic, notifyPlaybackStarted, notifyPlaybackEnded,
   } = useAudioEngine({
     sensitivity: settings.sensitivity,
     silenceMs: settings.silenceMs,
@@ -99,8 +99,12 @@ export default function EchoBaby() {
     notifyPlaybackEnded();
   };
 
-  const playClip = (clip: Clip) => {
+    const playClip = (clip: Clip) => {
     stopClip();
+    
+    // 🎯 Сообщаем движку, что начинается воспроизведение — он остановит запись
+    notifyPlaybackStarted();
+    
     const audio = new Audio(clip.url);
     activeAudioRef.current = audio;
     setPlayingId(clip.id);
