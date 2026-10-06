@@ -2,10 +2,13 @@
 
 import dynamic from "next/dynamic";
 
-const UIKit = dynamic(() => import("@/components/ui-kit"), {
-  ssr: false,
-});
+// Кастуем сам Промис импорта как Promise<any>, 
+// сохраняя правильное разрешение .default свойства во время выполнения в браузере.
+const EchoBaby = dynamic<any>(
+  () => (import("@/components/echo-baby") as Promise<any>).then((mod) => mod.default),
+  { ssr: false }
+);
 
-export default function UIKitPage() {
-  return <UIKit />;
+export default function Home() {
+  return <EchoBaby />;
 }
