@@ -31,41 +31,7 @@ type EngineReturn = {
   setStatus: (s: AppStatus) => void;
 };
 
-// ⚡ Код высокопроизводительного AudioWorklet-процессора в виде строки для Blob
-const WORKLET_CODE = `
-  class EchoBabyProcessor extends AudioWorkletProcessor {
-    constructor() {
-      super();
-      this.bufferSize = ${BUFFER_SIZE};
-      this.buffer = new Float32Array(this.bufferSize);
-      this.writeIndex = 0;
-    }
-
-    process(inputs, outputs, parameters) {
-      const input = inputs[0];
-      if (!input || input.length === 0) return true;
-      const channelData = input[0]; // Моно-канал
-
-      for (let i = 0; i < channelData.length; i++) {
-        this.buffer[this.writeIndex] = channelData[i];
-        this.writeIndex++;
-
-        if (this.writeIndex >= this.bufferSize) {
-          // Выделяем новую память для передачи
-          const copy = new Float32Array(this.bufferSize);
-          copy.set(this.buffer);
-          
-          // Zero-Copy Transfer: передаем владение ArrayBuffer без копирования
-          this.port.postMessage(copy.buffer, [copy.buffer]);
-          this.writeIndex = 0;
-        }
-      }
-      return true;
-    }
-  }
-  registerProcessor('echo-baby-processor', EchoBabyProcessor);
-`;
-
+// Функция обрезки тишины с добавлением плавного нарастания и затухания (Anti-Click)
 function trimSilence(samples: any, sampleRate: number, thresholdPct: number): any {
   const amplitudeThreshold = (thresholdPct / 400) * 0.5;
   const blockSize = Math.floor(sampleRate * 0.01);
@@ -76,7 +42,7 @@ function trimSilence(samples: any, sampleRate: number, thresholdPct: number): an
     for (let j = 0; j < blockSize; j++) sum += samples[i + j] * samples[i + j];
     const rms = Math.sqrt(sum / blockSize);
     if (rms > amplitudeThreshold) {
-      startIdx = Math.max(0, i - sampleRate * 0.1);
+      startIdx = Math.max(0, i - Math.floor(sampleRate * 0.15)); // 150мс предзаписи для контекста
       break;
     }
   }
@@ -87,13 +53,27 @@ function trimSilence(samples: any, sampleRate: number, thresholdPct: number): an
     for (let j = 0; j < blockSize; j++) sum += samples[i + j] * samples[i + j];
     const rms = Math.sqrt(sum / blockSize);
     if (rms > amplitudeThreshold) {
-      endIdx = Math.min(samples.length, i + blockSize + sampleRate * 0.2);
+      endIdx = Math.min(samples.length, i + blockSize + Math.floor(sampleRate * 0.25)); // 250мс затухания
       break;
     }
   }
 
   if (endIdx <= startIdx) return samples;
-  return samples.slice(startIdx, endIdx);
+  const sliced = samples.slice(startIdx, endIdx);
+
+  // 🎯 WOW-ЭФФЕКТ: Плавный Fade-In (50мс) и Fade-Out (100мс) для абсолютной чистоты звука
+  const fadeInLength = Math.floor(sampleRate * 0.05);
+  const fadeOutLength = Math.floor(sampleRate * 0.1);
+
+  for (let i = 0; i < Math.min(fadeInLength, sliced.length); i++) {
+    sliced[i] *= (i / fadeInLength);
+  }
+  for (let i = 0; i < Math.min(fadeOutLength, sliced.length); i++) {
+    const idx = sliced.length - 1 - i;
+    sliced[idx] *= (i / fadeOutLength);
+  }
+
+  return sliced;
 }
 
 export function useAudioEngine(options: EngineOptions): EngineReturn {
@@ -104,7 +84,7 @@ export function useAudioEngine(options: EngineOptions): EngineReturn {
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const workletNodeRef = useRef<AudioWorkletNode | null>(null); // Вместо ScriptProcessor
+  const workletNodeRef = useRef<AudioWorkletNode | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
 
   const preBufferRef = useRef<any[]>([]);
@@ -275,6 +255,7 @@ export function useAudioEngine(options: EngineOptions): EngineReturn {
             preBufferRef.current.shift();
           }
 
+          // 🎯 ИСПРАВЛЕНО: samples уже лежит внутри preBufferRef, убираем дублирование!
           if (
             levelPct >= threshold &&
             now > rearmUntilRef.current &&
@@ -283,7 +264,7 @@ export function useAudioEngine(options: EngineOptions): EngineReturn {
             isRecordingRef.current = true;
             recStartRef.current = now;
             silenceStartRef.current = 0;
-            recBufferRef.current = [...preBufferRef.current, samples];
+            recBufferRef.current = [...preBufferRef.current]; 
             preBufferRef.current = [];
             setStatus("recording");
           }
@@ -302,7 +283,7 @@ export function useAudioEngine(options: EngineOptions): EngineReturn {
     }
   }, [finalizeClip]);
 
-    const stop = useCallback(() => {
+  const stop = useCallback(() => {
     if (workletNodeRef.current) {
       workletNodeRef.current.port.onmessage = null;
       try { workletNodeRef.current.disconnect(); } catch {}
