@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   BUFFER_SIZE,
-  MAX_CLIP_MS,
   MIN_CLIP_MS,
   PLAYBACK_REARM_MS,
   PREBUFFER_MS,
@@ -12,6 +11,9 @@ import {
   encodeWav,
 } from "@/lib/audio-utils";
 import type { AppStatus, Clip } from "@/types/clip";
+
+// Максимальный лимит записи увеличен до 30 минут для длинных сессий
+const ABSOLUTE_MAX_CLIP_MS = 1800000; 
 
 type EngineOptions = {
   sensitivity: number;
@@ -31,7 +33,6 @@ type EngineReturn = {
   setStatus: (s: AppStatus) => void;
 };
 
-// Код ворклета для фонового аудио-потока
 const WORKLET_CODE = `
   class EchoBabyProcessor extends AudioWorkletProcessor {
     constructor() {
@@ -94,18 +95,22 @@ export function useAudioEngine(options: EngineOptions): EngineReturn {
   const [level, setLevel] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [analyser, setAnalyser] = useState<AnalyserNode | null>(null);
+
   const audioCtxRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const workletNodeRef = useRef<AudioWorkletNode | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
+
   const preBufferRef = useRef<any[]>([]);
   const recBufferRef = useRef<any[]>([]);
+
   const isRecordingRef = useRef(false);
   const silenceStartRef = useRef(0);
   const recStartRef = useRef(0);
   const rearmUntilRef = useRef(0);
   const playbackRearmRef = useRef(0);
   const isPlayingRef = useRef(false);
+
   const sampleRateRef = useRef(44100);
   const statusRef = useRef<AppStatus>("idle");
   const sensitivityRef = useRef(options.sensitivity);
@@ -189,14 +194,23 @@ export function useAudioEngine(options: EngineOptions): EngineReturn {
         const rms = Math.sqrt(sum / samples.length);
         const lvl = Math.min(100, rms * 400);
         setLevel(lvl);
-        const thr = sensitivityRef.current;
+        
+        // 🎯 ИСПРАВЛЕНО: Жёсткое приведение типов к Number (защита от undefined)
+        const thr = Number(sensitivityRef.current) || 8;
+        const currentSilenceMs = Number(silenceMsRef.current) || 1000;
         const now = Date.now();
+
         if (isRecordingRef.current) {
           recBufferRef.current.push(samples);
-          if (now - recStartRef.current >= MAX_CLIP_MS) { finalizeClip(); return; }
+          // Лимит записи увеличен до 30 минут
+          if (now - recStartRef.current >= ABSOLUTE_MAX_CLIP_MS) { finalizeClip(); return; }
           if (lvl < thr) {
-            if (silenceStartRef.current === 0) silenceStartRef.current = now;
-            else if (now - silenceStartRef.current >= silenceMsRef.current) { finalizeClip(); return; }
+            if (silenceStartRef.current === 0) {
+              silenceStartRef.current = now;
+            } else if (now - silenceStartRef.current >= currentSilenceMs) {
+              finalizeClip();
+              return;
+            }
           } else { silenceStartRef.current = 0; }
         } else {
           preBufferRef.current.push(samples);
@@ -213,13 +227,13 @@ export function useAudioEngine(options: EngineOptions): EngineReturn {
       };
       setStatus("listening");
     } catch (e: any) {
+      console.error("Audio Engine failed:", e);
       let msg = "Не удалось запустить аудио-движок.";
       if (e?.name === "NotAllowedError") msg = "Доступ к микрофону запрещён.";
       setError(msg);
       setStatus("idle");
     }
   }, [finalizeClip]);
-
     const stop = useCallback(() => {
     if (workletNodeRef.current) {
       workletNodeRef.current.port.onmessage = null;
