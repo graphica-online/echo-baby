@@ -6,6 +6,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 const inter = Inter({ subsets: ["latin", "cyrillic"] });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://echo-baby-roan.vercel.app"), // 🎯 Добавлено для устранения варнинга
   title: "Echo Baby — Умная Аудио-Няня",
   description:
     "Веб-приложение для автоматической записи звуков. Слушает микрофон и пишет WAV-клипы при превышении порога громкости. 6 визуализаторов, тёмная тема, IndexedDB.",
